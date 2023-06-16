@@ -1,0 +1,213 @@
+# MCU name
+# get available names with "avr-gcc --help=target"
+MCU = atmega1284p
+# MCU = atmega328p
+
+AVRGCC = avr-gcc
+AVRDUDE = avrdude
+AVROBJCOPY = avr-objcopy
+
+
+# ########## C compiler flags ###########
+
+# Debugging format.
+# Native formats for AVR-GCC's -g are stabs [default], or dwarf-2.
+# AVR (extended) COFF requires stabs, plus an avr-objcopy run.
+#DEBUG = stabs
+DEBUG = dwarf-2
+
+# -D: defines
+# -U: undefines
+# -I: include directories
+
+CFLAGS = -g$(DEBUG)
+CFLAGS += -Os # optimization[0, 1, 2, 3, s]
+CFLAGS += -funsigned-char -funsigned-bitfields -fpack-struct -fshort-enums
+CFLAGS += -Wall -Wstrict-prototypes
+CFLAGS += -Wa,-adhlns=$(<:.c=.lst)
+CFLAGS += -std=gnu99 # c89, gnu89, c99, gnu99
+
+# Compiler flags to generate dependency files.
+### GENDEPFLAGS = -Wp,-M,-MP,-MT,$(*F).o,-MF,.dep/$(@F).d
+# GENDEPFLAGS = -MD -MP -MF .dep/$(@F).d
+
+# Combine all necessary flags and optional flags.
+# Add target processor to flags.
+ALL_CFLAGS = -mmcu=$(MCU) -I. $(CFLAGS) $(GENDEPFLAGS)
+ALL_ASFLAGS = -mmcu=$(MCU) -I. -x assembler-with-cpp $(ASFLAGS)
+
+
+# ########## Ende C Compiler flags ##########
+
+
+
+# ########## Linker flags ##########
+
+#Additional libraries.
+
+# Minimalistic printf version
+PRINTF_LIB_MIN = -Wl,-u,vfprintf -lprintf_min
+
+# Floating point printf version (requires MATH_LIB = -lm below)
+PRINTF_LIB_FLOAT = -Wl,-u,vfprintf -lprintf_flt
+
+PRINTF_LIB =
+
+# Minimalistic scanf version
+SCANF_LIB_MIN = -Wl,-u,vfscanf -lscanf_min
+
+# Floating point + %[ scanf version (requires MATH_LIB = -lm below)
+SCANF_LIB_FLOAT = -Wl,-u,vfscanf -lscanf_flt
+
+SCANF_LIB =
+
+MATH_LIB = -lm
+
+# External memory options
+
+# 64 KB of external RAM, starting after internal RAM (ATmega128!),
+# used for variables (.data/.bss) and heap (malloc()).
+#EXTMEMOPTS = -Wl,-Tdata=0x801100,--defsym=__heap_end=0x80ffff
+
+# 64 KB of external RAM, starting after internal RAM (ATmega128!),
+# only used for heap (malloc()).
+#EXTMEMOPTS = -Wl,--defsym=__heap_start=0x801100,--defsym=__heap_end=0x80ffff
+
+EXTMEMOPTS =
+
+LDFLAGS = -Wl,-Map=$(TARGET).map,--cref
+LDFLAGS += $(EXTMEMOPTS)
+LDFLAGS += $(PRINTF_LIB) $(SCANF_LIB) $(MATH_LIB)
+
+
+# ########## Ende Linker flags ##########
+
+
+TARGET = p
+
+# List C source files here. (C dependencies are automatically generated.)
+SRC = $(TARGET).c
+
+
+# List Assembler source files here.
+# Make them always end in a capital .S.  Files ending in a lowercase .s
+# will not be considered source files but generated files (assembler
+# output from the compiler), and will be deleted upon "make clean"!
+# Even though the DOS/Win* filesystem matches both .s and .S the same,
+# it will preserve the spelling of the filenames, and gcc itself does
+# care about how the name is spelled on its command-line.
+ASRC =
+
+
+# Define all object files.
+OBJ = $(SRC:.c=.o) $(ASRC:.S=.o)
+
+.SECONDARY : $(TARGET).elf
+.PRECIOUS : $(OBJ)
+
+all: elf hex eep
+
+
+
+# ########## create elf file ##########
+
+# build the target "elf" by building the file $(TARGET).elf
+elf: $(TARGET).elf
+
+# build the elf file from the object files (= linking)
+%.elf: $(OBJ)
+	@echo
+	@echo Linking: $@
+	$(AVRGCC) $(ALL_CFLAGS) $(OBJ) --output $@ $(LDFLAGS)
+
+# build object files from c source files
+%.o: %.c
+	@echo
+	@echo Compiling: $<
+	@echo $(AVRGCC) -c $(ALL_CFLAGS) $< -o $@
+	$(AVRGCC) -c $(ALL_CFLAGS) $< -o $@
+
+
+
+
+
+# ########## create intel hex file ##########
+
+# build the target "hex" by building the file $(TARGET).hex
+hex: $(TARGET).hex
+
+# build the hex file from the elf file; omit the .eeprom section
+%.hex: %.elf
+	@echo
+	@echo Creating hex file
+	$(AVROBJCOPY) -O ihex -R .eeprom $< $@
+
+
+
+
+
+
+# ########## create the eeprom file ##########
+
+# build the target "eep" by building the File $(TARGET).eep;
+# this file holds the data to be stored in the .eeprom section
+eep: $(TARGET).eep
+
+# build the file that contains eprom data; source is elf file
+# the minus sign makes make ignore any errors
+# -j .eeprom: only section .eeprom
+%.eep: %.elf
+	@echo
+	@echo Creating eeprom file
+	-$(AVROBJCOPY) -j .eeprom --set-section-flags=.eeprom="alloc,load" \
+	--change-section-lma .eeprom=0 -O ihex $< $@
+
+
+
+
+# # ########## program the mcu ##########
+# program: $(TARGET).hex $(TARGET).eep
+# 	$(AVRDUDE) -p $(MCU) -P usb -c avrispmkII -vvvv -U flash:w:$(TARGET).hex
+
+
+# ########## program the mcu ##########
+program: $(TARGET).hex $(TARGET).eep
+	# $(AVRDUDE) -p $(MCU) -P usb -c jtag3isp -vvvv -U flash:w:$(TARGET).hex
+	# $(AVRDUDE) -p $(MCU) -P usb -c avrispmkII -vvvv -U flash:w:$(TARGET).hex
+	# $(AVRDUDE) -p $(MCU) -P usb -c atmelice_isp -vvvv -U flash:w:$(TARGET).hex
+	$(AVRDUDE) -p $(MCU) -P usb -c atmelice -U flash:w:$(TARGET).hex
+	# $(AVRDUDE) -p $(MCU) -P usb -c jtag3 -vvvv -U flash:w:$(TARGET).hex
+
+
+# programlsg: 
+# 	$(AVRDUDE) -p $(MCU) -P usb -c atmelice -U flash:w:loesung.hex
+
+programlsg: 
+	$(AVRDUDE) -p $(MCU) -P usb -c atmelice -U flash:w:s.hex
+
+# ######### show disassembly ########
+show: $(TARGET).elf
+	avr-objdump -h -S $(TARGET).elf
+
+
+# ######### program fuses #############
+fuses:
+	# 20 MHz, external crystal, cf. http://www.engbedded.com/fusecalc/
+	avrdude -p atmega1284p -P usb -c atmelice -U lfuse:w:0xf7:m -U hfuse:w:0x99:m -U efuse:w:0xff:m
+
+
+
+# ########## delete files ##########
+clean:
+	rm -f $(TARGET).elf
+	rm -f $(TARGET).hex
+	rm -f $(TARGET).eep
+	rm -f $(TARGET).obj
+	rm -f $(TARGET).map
+	rm -f $(TARGET).lst
+	rm -f $(OBJ)
+
+
+
+
+.PHONY: all elf hex eep clean show fuses
